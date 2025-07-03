@@ -1,0 +1,407 @@
+---
+# AWS Innovation Sandbox API Interface Role Example Tasks
+# This file demonstrates common usage patterns and can be imported into playbooks
+
+- name: Example - API health check with retry
+  ansible.builtin.uri:
+    url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.monitoring.health }}"
+    method: "{{ sandbox_api_methods.monitoring_health }}"
+    headers: "{{ _sandbox_request_headers }}"
+    timeout: "{{ sandbox_api.timeout }}"
+    validate_certs: "{{ sandbox_api.ssl.verify }}"
+    status_code: [200, 404]
+  register: _example_health_check
+  retries: "{{ sandbox_api.retries | default(3) }}"
+  delay: "{{ sandbox_api.retry_delay | default(5) }}"
+  until: _example_health_check.status == 200
+  failed_when: false
+  when: sandbox_example_health_check | default(false)
+  tags: [examples, health]
+
+- name: Example - Create account with full configuration
+  ansible.builtin.uri:
+    url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.accounts.create }}"
+    method: "{{ sandbox_api_methods.accounts_create }}"
+    headers: "{{ _sandbox_request_headers }}"
+    body_format: json
+    body:
+      name: "{{ sandbox_example_account_name | default('example-account-' + ansible_date_time.epoch) }}"
+      email: "{{ sandbox_example_account_email | default('admin@example.com') }}"
+      budget_limit: "{{ sandbox_example_account_budget | default(sandbox_accounts.default_budget_limit) }}"
+      duration: "{{ sandbox_example_account_duration | default(sandbox_accounts.default_lease_duration) }}"
+      tags:
+        Environment: "{{ sandbox_example_environment | default('dev') }}"
+        Purpose: "{{ sandbox_example_purpose | default('automation-testing') }}"
+        Owner: "{{ sandbox_example_owner | default('ansible-automation') }}"
+        CreatedBy: "ansible-role-aws-sandbox-api"
+        CreatedAt: "{{ ansible_date_time.iso8601 }}"
+      service_control_policies: "{{ sandbox_example_scps | default(sandbox_accounts.default_scps) }}"
+      cleanup_settings:
+        auto_cleanup: "{{ sandbox_example_auto_cleanup | default(sandbox_accounts.auto_cleanup) }}"
+        cleanup_delay: "{{ sandbox_example_cleanup_delay | default(sandbox_accounts.cleanup_delay) }}"
+    timeout: "{{ sandbox_api.timeout }}"
+    validate_certs: "{{ sandbox_api.ssl.verify }}"
+    status_code: "{{ sandbox_api_success_codes }}"
+  register: sandbox_example_account_created
+  when: sandbox_example_create_account | default(false)
+  notify: 
+    - "account created"
+    - "log operation"
+  tags: [examples, accounts, create]
+
+- name: Example - Create lease with notifications
+  ansible.builtin.uri:
+    url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.leases.create }}"
+    method: "{{ sandbox_api_methods.leases_create }}"
+    headers: "{{ _sandbox_request_headers }}"
+    body_format: json
+    body:
+      account_id: "{{ sandbox_example_lease_account_id | default(sandbox_example_account_created.json.account_id) }}"
+      user_id: "{{ sandbox_example_lease_user_id | default('example-user-' + ansible_user) }}"
+      duration: "{{ sandbox_example_lease_duration | default(sandbox_leases.default_duration) }}"
+      budget_limit: "{{ sandbox_example_lease_budget | default(sandbox_accounts.default_budget_limit) }}"
+      purpose: "{{ sandbox_example_lease_purpose | default('Example lease created by Ansible') }}"
+      notification_settings:
+        email: "{{ sandbox_example_lease_email | default('admin@example.com') }}"
+        notify_on_creation: true
+        notify_on_expiry: "{{ sandbox_leases.notify_on_expiry | default(true) }}"
+        notify_before_expiry: "{{ sandbox_leases.notify_before_expiry | default(1800) }}"
+      auto_renew: "{{ sandbox_example_auto_renew | default(sandbox_leases.auto_renew) }}"
+      tags:
+        CreatedBy: "ansible-role-example"
+        Purpose: "{{ sandbox_example_lease_purpose | default('demonstration') }}"
+    timeout: "{{ sandbox_api.timeout }}"
+    validate_certs: "{{ sandbox_api.ssl.verify }}"
+    status_code: "{{ sandbox_api_success_codes }}"
+  register: sandbox_example_lease_created
+  when: 
+    - sandbox_example_create_lease | default(false)
+    - sandbox_example_lease_account_id is defined or sandbox_example_account_created.json.account_id is defined
+  notify: 
+    - "lease created"
+    - "log operation"
+  tags: [examples, leases, create]
+
+- name: Example - Batch account operations
+  ansible.builtin.uri:
+    url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.accounts.create }}"
+    method: "{{ sandbox_api_methods.accounts_create }}"
+    headers: "{{ _sandbox_request_headers }}"
+    body_format: json
+    body:
+      name: "{{ item.name }}"
+      email: "{{ item.email }}"
+      budget_limit: "{{ item.budget_limit | default(sandbox_accounts.default_budget_limit) }}"
+      duration: "{{ item.duration | default(sandbox_accounts.default_lease_duration) }}"
+      tags: "{{ item.tags | default({}) }}"
+    timeout: "{{ sandbox_api.timeout }}"
+    validate_certs: "{{ sandbox_api.ssl.verify }}"
+    status_code: "{{ sandbox_api_success_codes }}"
+  register: sandbox_example_batch_accounts
+  loop: "{{ sandbox_example_batch_account_list | default([]) }}"
+  when: 
+    - sandbox_example_batch_create_accounts | default(false)
+    - sandbox_example_batch_account_list is defined
+    - sandbox_example_batch_account_list | length > 0
+  tags: [examples, accounts, batch]
+
+- name: Example - Monitor lease expiry and extend if needed
+  block:
+    - name: Get lease details
+      ansible.builtin.uri:
+        url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.leases.get | replace('{lease_id}', sandbox_example_monitor_lease_id) }}"
+        method: "{{ sandbox_api_methods.leases_get }}"
+        headers: "{{ _sandbox_request_headers }}"
+        timeout: "{{ sandbox_api.timeout }}"
+        validate_certs: "{{ sandbox_api.ssl.verify }}"
+        status_code: "{{ sandbox_api_success_codes }}"
+      register: sandbox_example_lease_details
+      
+    - name: Check if lease is expiring soon
+      ansible.builtin.set_fact:
+        _lease_expires_at: "{{ sandbox_example_lease_details.json.expires_at | to_datetime }}"
+        _current_time: "{{ ansible_date_time.iso8601 | to_datetime }}"
+        _time_until_expiry: "{{ (sandbox_example_lease_details.json.expires_at | to_datetime) - (ansible_date_time.iso8601 | to_datetime) }}"
+        
+    - name: Extend lease if expiring within threshold
+      ansible.builtin.uri:
+        url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.leases.extend | replace('{lease_id}', sandbox_example_monitor_lease_id) }}"
+        method: "{{ sandbox_api_methods.leases_extend }}"
+        headers: "{{ _sandbox_request_headers }}"
+        body_format: json
+        body:
+          duration: "{{ sandbox_example_extension_duration | default(sandbox_leases.extension_increment) }}"
+          reason: "Auto-extended due to upcoming expiry"
+        timeout: "{{ sandbox_api.timeout }}"
+        validate_certs: "{{ sandbox_api.ssl.verify }}"
+        status_code: "{{ sandbox_api_success_codes }}"
+      register: sandbox_example_lease_extended
+      when: 
+        - _time_until_expiry.total_seconds() < (sandbox_example_extension_threshold | default(1800))
+        - sandbox_leases.allow_extension | default(true)
+      notify: 
+        - "lease extended"
+        - "log operation"
+        
+  when: 
+    - sandbox_example_monitor_lease | default(false)
+    - sandbox_example_monitor_lease_id is defined
+  tags: [examples, leases, monitor]
+
+- name: Example - User management with role assignment
+  ansible.builtin.uri:
+    url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.users.create }}"
+    method: "{{ sandbox_api_methods.users_create }}"
+    headers: "{{ _sandbox_request_headers }}"
+    body_format: json
+    body:
+      username: "{{ sandbox_example_user_username }}"
+      email: "{{ sandbox_example_user_email }}"
+      first_name: "{{ sandbox_example_user_first_name | default('') }}"
+      last_name: "{{ sandbox_example_user_last_name | default('') }}"
+      role: "{{ sandbox_example_user_role | default(sandbox_users.default_role) }}"
+      permissions: "{{ sandbox_example_user_permissions | default(sandbox_users.default_permissions) }}"
+      settings:
+        session_timeout: "{{ sandbox_example_user_session_timeout | default(sandbox_users.session_timeout) }}"
+        max_concurrent_sessions: "{{ sandbox_example_user_max_sessions | default(sandbox_users.max_concurrent_sessions) }}"
+        notification_preferences:
+          email_notifications: "{{ sandbox_example_user_email_notifications | default(true) }}"
+          sms_notifications: "{{ sandbox_example_user_sms_notifications | default(false) }}"
+      tags:
+        CreatedBy: "ansible-role-example"
+        Department: "{{ sandbox_example_user_department | default('') }}"
+        CostCenter: "{{ sandbox_example_user_cost_center | default('') }}"
+    timeout: "{{ sandbox_api.timeout }}"
+    validate_certs: "{{ sandbox_api.ssl.verify }}"
+    status_code: "{{ sandbox_api_success_codes }}"
+  register: sandbox_example_user_created
+  when: 
+    - sandbox_example_create_user | default(false)
+    - sandbox_example_user_username is defined
+    - sandbox_example_user_email is defined
+  notify: 
+    - "user created"
+    - "log operation"
+  tags: [examples, users, create]
+
+- name: Example - Comprehensive system health check
+  block:
+    - name: Check API health
+      ansible.builtin.uri:
+        url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.monitoring.health }}"
+        method: "{{ sandbox_api_methods.monitoring_health }}"
+        headers: "{{ _sandbox_request_headers }}"
+        timeout: "{{ sandbox_api.timeout }}"
+        validate_certs: "{{ sandbox_api.ssl.verify }}"
+        status_code: [200, 404]
+      register: _example_health_status
+      failed_when: false
+      
+    - name: Get system metrics
+      ansible.builtin.uri:
+        url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.monitoring.metrics }}"
+        method: "{{ sandbox_api_methods.monitoring_metrics }}"
+        headers: "{{ _sandbox_request_headers }}"
+        timeout: "{{ sandbox_api.timeout }}"
+        validate_certs: "{{ sandbox_api.ssl.verify }}"
+        status_code: "{{ sandbox_api_success_codes }}"
+      register: _example_metrics
+      failed_when: false
+      
+    - name: Get system status
+      ansible.builtin.uri:
+        url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.monitoring.status }}"
+        method: "{{ sandbox_api_methods.monitoring_status }}"
+        headers: "{{ _sandbox_request_headers }}"
+        timeout: "{{ sandbox_api.timeout }}"
+        validate_certs: "{{ sandbox_api.ssl.verify }}"
+        status_code: "{{ sandbox_api_success_codes }}"
+      register: _example_status
+      failed_when: false
+      
+    - name: Generate health report
+      ansible.builtin.debug:
+        msg:
+          - "=== System Health Report ==="
+          - "API Health: {{ 'OK' if _example_health_status.status == 200 else 'DEGRADED' }}"
+          - "Health Status Code: {{ _example_health_status.status | default('N/A') }}"
+          - "Metrics Available: {{ 'YES' if _example_metrics.status == 200 else 'NO' }}"
+          - "Status Available: {{ 'YES' if _example_status.status == 200 else 'NO' }}"
+          - "Timestamp: {{ ansible_date_time.iso8601 }}"
+          - "{{ 'Active Accounts: ' + (_example_metrics.json.active_accounts | string) if _example_metrics.json.active_accounts is defined else '' }}"
+          - "{{ 'Active Leases: ' + (_example_metrics.json.active_leases | string) if _example_metrics.json.active_leases is defined else '' }}"
+          - "{{ 'System Load: ' + (_example_status.json.system_load | string) if _example_status.json.system_load is defined else '' }}"
+          
+  when: sandbox_example_system_health_check | default(false)
+  tags: [examples, monitoring, health]
+
+- name: Example - Error handling and retry patterns
+  block:
+    - name: Attempt API operation with retry
+      ansible.builtin.uri:
+        url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.accounts.list }}"
+        method: "{{ sandbox_api_methods.accounts_list }}"
+        headers: "{{ _sandbox_request_headers }}"
+        timeout: "{{ sandbox_api.timeout }}"
+        validate_certs: "{{ sandbox_api.ssl.verify }}"
+        status_code: "{{ sandbox_api_success_codes }}"
+      register: _example_retry_result
+      retries: "{{ sandbox_api.retries | default(3) }}"
+      delay: "{{ sandbox_api.retry_delay | default(5) }}"
+      until: _example_retry_result.status in sandbox_api_success_codes
+      
+  rescue:
+    - name: Handle API failure gracefully
+      ansible.builtin.debug:
+        msg:
+          - "API operation failed after {{ sandbox_api.retries | default(3) }} attempts"
+          - "Last error: {{ _example_retry_result.msg | default('Unknown error') }}"
+          - "Status code: {{ _example_retry_result.status | default('N/A') }}"
+          - "Implementing fallback procedures..."
+          
+    - name: Implement fallback behavior
+      ansible.builtin.set_fact:
+        _example_fallback_mode: true
+        _example_fallback_reason: "API unavailable"
+        
+  when: sandbox_example_error_handling | default(false)
+  tags: [examples, error_handling]
+
+- name: Example - Configuration management
+  block:
+    - name: Get current configuration
+      ansible.builtin.uri:
+        url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.config.global }}"
+        method: "{{ sandbox_api_methods.config_global }}"
+        headers: "{{ _sandbox_request_headers }}"
+        timeout: "{{ sandbox_api.timeout }}"
+        validate_certs: "{{ sandbox_api.ssl.verify }}"
+        status_code: "{{ sandbox_api_success_codes }}"
+      register: _example_current_config
+      
+    - name: Display configuration summary
+      ansible.builtin.debug:
+        msg:
+          - "=== Configuration Summary ==="
+          - "API Version: {{ _example_current_config.json.api_version | default('N/A') }}"
+          - "Max Lease Duration: {{ _example_current_config.json.max_lease_duration | default('N/A') }}"
+          - "Default Budget Limit: {{ _example_current_config.json.default_budget_limit | default('N/A') }}"
+          - "Account Pool Size: {{ _example_current_config.json.account_pool_size | default('N/A') }}"
+          - "Auto Cleanup Enabled: {{ _example_current_config.json.auto_cleanup_enabled | default('N/A') }}"
+          
+    - name: Generate configuration file
+      ansible.builtin.template:
+        src: "sandbox_config.json.j2"
+        dest: "{{ sandbox_example_config_file | default('/tmp/sandbox_config.json') }}"
+        mode: '0644'
+      vars:
+        config_timestamp: "{{ ansible_date_time.iso8601 }}"
+      when: sandbox_example_generate_config | default(false)
+      
+  when: sandbox_example_config_management | default(false)
+  tags: [examples, config]
+
+- name: Example - Cleanup expired resources
+  block:
+    - name: Get all leases
+      ansible.builtin.uri:
+        url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.leases.list }}"
+        method: "{{ sandbox_api_methods.leases_list }}"
+        headers: "{{ _sandbox_request_headers }}"
+        timeout: "{{ sandbox_api.timeout }}"
+        validate_certs: "{{ sandbox_api.ssl.verify }}"
+        status_code: "{{ sandbox_api_success_codes }}"
+      register: _example_all_leases
+      
+    - name: Identify expired leases
+      ansible.builtin.set_fact:
+        _example_expired_leases: "{{ _example_all_leases.json | selectattr('status', 'equalto', 'expired') | list }}"
+        
+    - name: Terminate expired leases
+      ansible.builtin.uri:
+        url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.leases.terminate | replace('{lease_id}', item.lease_id) }}"
+        method: "{{ sandbox_api_methods.leases_terminate }}"
+        headers: "{{ _sandbox_request_headers }}"
+        timeout: "{{ sandbox_api.timeout }}"
+        validate_certs: "{{ sandbox_api.ssl.verify }}"
+        status_code: "{{ sandbox_api_success_codes }}"
+      register: _example_cleanup_results
+      loop: "{{ _example_expired_leases | default([]) }}"
+      when: 
+        - _example_expired_leases is defined
+        - _example_expired_leases | length > 0
+      notify: 
+        - "lease terminated"
+        - "log operation"
+        
+    - name: Cleanup summary
+      ansible.builtin.debug:
+        msg:
+          - "=== Cleanup Summary ==="
+          - "Total leases found: {{ _example_all_leases.json | length | default(0) }}"
+          - "Expired leases: {{ _example_expired_leases | length | default(0) }}"
+          - "Cleaned up: {{ _example_cleanup_results.results | length | default(0) }}"
+          
+  when: sandbox_example_cleanup_expired | default(false)
+  tags: [examples, cleanup]
+
+- name: Example - Generate usage report
+  block:
+    - name: Gather usage statistics
+      ansible.builtin.uri:
+        url: "{{ _sandbox_api_full_url }}{{ item }}"
+        method: "GET"
+        headers: "{{ _sandbox_request_headers }}"
+        timeout: "{{ sandbox_api.timeout }}"
+        validate_certs: "{{ sandbox_api.ssl.verify }}"
+        status_code: "{{ sandbox_api_success_codes }}"
+      register: _example_usage_data
+      loop:
+        - "{{ sandbox_api_endpoints.accounts.list }}"
+        - "{{ sandbox_api_endpoints.leases.list }}"
+        - "{{ sandbox_api_endpoints.users.list }}"
+        - "{{ sandbox_api_endpoints.monitoring.metrics }}"
+      loop_control:
+        label: "{{ item }}"
+      failed_when: false
+      
+    - name: Generate usage report
+      ansible.builtin.copy:
+        content: |
+          # AWS Innovation Sandbox Usage Report
+          Generated: {{ ansible_date_time.iso8601 }}
+          
+          ## Summary
+          - Total Accounts: {{ _example_usage_data.results[0].json | length | default(0) }}
+          - Total Leases: {{ _example_usage_data.results[1].json | length | default(0) }}
+          - Total Users: {{ _example_usage_data.results[2].json | length | default(0) }}
+          
+          ## Account Statistics
+          {% for account in _example_usage_data.results[0].json | default([]) %}
+          - Account: {{ account.name }} ({{ account.account_id }})
+            - Status: {{ account.status }}
+            - Budget: {{ account.budget_limit }} {{ account.budget_currency | default('USD') }}
+            - Created: {{ account.created_at }}
+          {% endfor %}
+          
+          ## Lease Statistics
+          {% for lease in _example_usage_data.results[1].json | default([]) %}
+          - Lease: {{ lease.lease_id }}
+            - Account: {{ lease.account_id }}
+            - User: {{ lease.user_id }}
+            - Status: {{ lease.status }}
+            - Created: {{ lease.created_at }}
+            - Expires: {{ lease.expires_at }}
+          {% endfor %}
+          
+          ## System Metrics
+          {% if _example_usage_data.results[3].json is defined %}
+          - CPU Usage: {{ _example_usage_data.results[3].json.cpu_usage | default('N/A') }}
+          - Memory Usage: {{ _example_usage_data.results[3].json.memory_usage | default('N/A') }}
+          - API Requests: {{ _example_usage_data.results[3].json.api_requests | default('N/A') }}
+          {% endif %}
+        dest: "{{ sandbox_example_report_file | default('/tmp/sandbox_usage_report.md') }}"
+        mode: '0644'
+        
+  when: sandbox_example_generate_report | default(false)
+  tags: [examples, reporting] 

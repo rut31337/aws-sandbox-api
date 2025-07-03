@@ -1,0 +1,166 @@
+---
+# AWS Innovation Sandbox API Interface Role Default Variables
+
+# API Configuration
+sandbox_api:
+  # Base URL for the Innovation Sandbox API
+  base_url: "https://your-sandbox-api.amazonaws.com"
+  
+  # API version to use
+  version: "v1"
+  
+  # Authentication settings
+  auth:
+    # Authentication type: 'aws_iam', 'api_key', 'oauth2', 'basic'
+    type: "aws_iam"
+    
+    # AWS IAM Role ARN for authentication (when using aws_iam)
+    role_arn: ""
+    
+    # API Key for authentication (when using api_key)
+    api_key: ""
+    
+    # OAuth2 settings (when using oauth2)
+    oauth2:
+      client_id: ""
+      client_secret: ""
+      token_url: ""
+      scope: ""
+    
+    # Basic auth settings (when using basic)
+    basic:
+      username: ""
+      password: ""
+  
+  # Request settings
+  timeout: 30
+  retries: 3
+  retry_delay: 5
+  
+  # SSL/TLS settings
+  ssl:
+    verify: true
+    cert_path: ""
+    key_path: ""
+    ca_bundle_path: ""
+  
+  # HTTP headers to include in all requests
+  headers:
+    User-Agent: "ansible-innovation-sandbox-api/1.0"
+    Content-Type: "application/json"
+    Accept: "application/json"
+
+# Account Management Settings
+sandbox_accounts:
+  # Default account settings
+  default_lease_duration: 7200  # 2 hours in seconds
+  default_budget_limit: 100     # Default budget limit in USD
+  default_budget_currency: "USD"
+  
+  # Account lifecycle settings
+  auto_cleanup: true
+  cleanup_delay: 300  # 5 minutes after lease expiry
+  
+  # Account pool settings
+  pool_size_min: 5
+  pool_size_max: 20
+  
+  # Service control policies
+  default_scps:
+    - "innovation-sandbox-guardrails"
+    - "innovation-sandbox-network-controls"
+
+# Lease Management Settings
+sandbox_leases:
+  # Default lease settings
+  default_duration: 7200  # 2 hours
+  max_duration: 28800     # 8 hours
+  min_duration: 300       # 5 minutes
+  
+  # Lease extension settings
+  allow_extension: true
+  max_extensions: 2
+  extension_increment: 3600  # 1 hour
+  
+  # Notification settings
+  notify_on_expiry: true
+  notify_before_expiry: 1800  # 30 minutes
+  
+  # Auto-renewal settings
+  auto_renew: false
+  auto_renew_threshold: 600  # 10 minutes before expiry
+
+# User Management Settings
+sandbox_users:
+  # Default user settings
+  default_role: "SandboxUser"
+  
+  # User permissions
+  default_permissions:
+    - "CanCreateLease"
+    - "CanViewOwnLeases"
+    - "CanExtendLease"
+    - "CanTerminateLease"
+  
+  # User session settings
+  session_timeout: 3600  # 1 hour
+  max_concurrent_sessions: 3
+
+# Monitoring and Logging Settings
+sandbox_monitoring:
+  # CloudWatch settings
+  cloudwatch:
+    enabled: true
+    log_group: "/aws/innovation-sandbox/api"
+    metrics_namespace: "InnovationSandbox"
+  
+  # Logging settings
+  logging:
+    level: "INFO"
+    include_request_body: false
+    include_response_body: false
+    
+  # Health check settings
+  health_check:
+    enabled: true
+    interval: 300  # 5 minutes
+    timeout: 10
+    endpoint: "/health"
+
+# Error Handling Settings
+sandbox_error_handling:
+  # Retry settings for failed requests
+  retry_on_errors:
+    - 429  # Too Many Requests
+    - 500  # Internal Server Error
+    - 502  # Bad Gateway
+    - 503  # Service Unavailable
+    - 504  # Gateway Timeout
+  
+  # Rate limiting settings
+  rate_limit:
+    enabled: true
+    requests_per_second: 10
+    burst_size: 20
+  
+  # Circuit breaker settings
+  circuit_breaker:
+    enabled: true
+    failure_threshold: 5
+    recovery_timeout: 60
+    half_open_max_calls: 3
+
+# Development and Testing Settings
+sandbox_dev:
+  # Debug settings
+  debug: false
+  verbose: false
+  
+  # Test mode settings
+  test_mode: false
+  mock_responses: false
+  
+  # Development endpoints
+  dev_endpoints:
+    enabled: false
+    base_url: "https://dev-sandbox-api.amazonaws.com" 

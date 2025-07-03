@@ -1,0 +1,325 @@
+---
+# AWS Innovation Sandbox API Interface Role Variables
+
+# API Endpoint Definitions
+sandbox_api_endpoints:
+  # Account Management Endpoints
+  accounts:
+    list: "/accounts"
+    get: "/accounts/{account_id}"
+    create: "/accounts"
+    update: "/accounts/{account_id}"
+    delete: "/accounts/{account_id}"
+    status: "/accounts/{account_id}/status"
+    cleanup: "/accounts/{account_id}/cleanup"
+    
+  # Lease Management Endpoints
+  leases:
+    list: "/leases"
+    get: "/leases/{lease_id}"
+    create: "/leases"
+    update: "/leases/{lease_id}"
+    delete: "/leases/{lease_id}"
+    extend: "/leases/{lease_id}/extend"
+    terminate: "/leases/{lease_id}/terminate"
+    status: "/leases/{lease_id}/status"
+    
+  # User Management Endpoints
+  users:
+    list: "/users"
+    get: "/users/{user_id}"
+    create: "/users"
+    update: "/users/{user_id}"
+    delete: "/users/{user_id}"
+    permissions: "/users/{user_id}/permissions"
+    sessions: "/users/{user_id}/sessions"
+    
+  # Configuration Endpoints
+  config:
+    global: "/config"
+    user: "/config/user"
+    account: "/config/account"
+    lease: "/config/lease"
+    
+  # Monitoring and Health Endpoints
+  monitoring:
+    health: "/health"
+    metrics: "/metrics"
+    status: "/status"
+    logs: "/logs"
+    
+  # Organization and Budget Endpoints
+  organization:
+    accounts: "/organization/accounts"
+    budgets: "/organization/budgets"
+    policies: "/organization/policies"
+    
+  # Notification Endpoints
+  notifications:
+    send: "/notifications"
+    preferences: "/notifications/preferences"
+    history: "/notifications/history"
+
+# HTTP Methods for each operation
+sandbox_api_methods:
+  # Account operations
+  accounts_list: "GET"
+  accounts_get: "GET"
+  accounts_create: "POST"
+  accounts_update: "PUT"
+  accounts_delete: "DELETE"
+  accounts_status: "GET"
+  accounts_cleanup: "POST"
+  
+  # Lease operations
+  leases_list: "GET"
+  leases_get: "GET"
+  leases_create: "POST"
+  leases_update: "PUT"
+  leases_delete: "DELETE"
+  leases_extend: "POST"
+  leases_terminate: "POST"
+  leases_status: "GET"
+  
+  # User operations
+  users_list: "GET"
+  users_get: "GET"
+  users_create: "POST"
+  users_update: "PUT"
+  users_delete: "DELETE"
+  users_permissions: "GET"
+  users_sessions: "GET"
+  
+  # Configuration operations
+  config_global: "GET"
+  config_user: "GET"
+  config_account: "GET"
+  config_lease: "GET"
+  
+  # Monitoring operations
+  monitoring_health: "GET"
+  monitoring_metrics: "GET"
+  monitoring_status: "GET"
+  monitoring_logs: "GET"
+  
+  # Organization operations
+  organization_accounts: "GET"
+  organization_budgets: "GET"
+  organization_policies: "GET"
+  
+  # Notification operations
+  notifications_send: "POST"
+  notifications_preferences: "GET"
+  notifications_history: "GET"
+
+# Request/Response Schemas
+sandbox_api_schemas:
+  # Account schemas
+  account_create_request:
+    type: "object"
+    properties:
+      name:
+        type: "string"
+        description: "Account name"
+      email:
+        type: "string"
+        description: "Account owner email"
+      budget_limit:
+        type: "number"
+        description: "Budget limit in USD"
+      duration:
+        type: "integer"
+        description: "Lease duration in seconds"
+      tags:
+        type: "object"
+        description: "Account tags"
+        
+  account_response:
+    type: "object"
+    properties:
+      account_id:
+        type: "string"
+        description: "Unique account identifier"
+      name:
+        type: "string"
+        description: "Account name"
+      status:
+        type: "string"
+        enum: ["available", "leased", "terminating", "cleanup"]
+      created_at:
+        type: "string"
+        description: "Account creation timestamp"
+      
+  # Lease schemas
+  lease_create_request:
+    type: "object"
+    properties:
+      account_id:
+        type: "string"
+        description: "Account ID to lease"
+      user_id:
+        type: "string"
+        description: "User requesting the lease"
+      duration:
+        type: "integer"
+        description: "Lease duration in seconds"
+      budget_limit:
+        type: "number"
+        description: "Budget limit for this lease"
+      purpose:
+        type: "string"
+        description: "Purpose of the lease"
+        
+  lease_response:
+    type: "object"
+    properties:
+      lease_id:
+        type: "string"
+        description: "Unique lease identifier"
+      account_id:
+        type: "string"
+        description: "Leased account ID"
+      user_id:
+        type: "string"
+        description: "User who owns the lease"
+      status:
+        type: "string"
+        enum: ["active", "expired", "terminated", "extended"]
+      created_at:
+        type: "string"
+        description: "Lease creation timestamp"
+      expires_at:
+        type: "string"
+        description: "Lease expiration timestamp"
+      
+  # User schemas
+  user_create_request:
+    type: "object"
+    properties:
+      username:
+        type: "string"
+        description: "Username"
+      email:
+        type: "string"
+        description: "User email"
+      role:
+        type: "string"
+        description: "User role"
+      permissions:
+        type: "array"
+        description: "User permissions"
+        
+  user_response:
+    type: "object"
+    properties:
+      user_id:
+        type: "string"
+        description: "Unique user identifier"
+      username:
+        type: "string"
+        description: "Username"
+      email:
+        type: "string"
+        description: "User email"
+      role:
+        type: "string"
+        description: "User role"
+      status:
+        type: "string"
+        enum: ["active", "inactive", "suspended"]
+      created_at:
+        type: "string"
+        description: "User creation timestamp"
+
+# Common query parameters
+sandbox_api_query_params:
+  # Pagination
+  pagination:
+    limit: "limit"
+    offset: "offset"
+    page: "page"
+    per_page: "per_page"
+    
+  # Filtering
+  filtering:
+    status: "status"
+    user_id: "user_id"
+    account_id: "account_id"
+    created_after: "created_after"
+    created_before: "created_before"
+    
+  # Sorting
+  sorting:
+    sort_by: "sort_by"
+    sort_order: "sort_order"
+    
+  # Other
+  include_metadata: "include_metadata"
+  include_details: "include_details"
+
+# Error codes and messages
+sandbox_api_errors:
+  400:
+    code: "BAD_REQUEST"
+    message: "Invalid request parameters"
+  401:
+    code: "UNAUTHORIZED"
+    message: "Authentication required"
+  403:
+    code: "FORBIDDEN"
+    message: "Insufficient permissions"
+  404:
+    code: "NOT_FOUND"
+    message: "Resource not found"
+  409:
+    code: "CONFLICT"
+    message: "Resource conflict"
+  429:
+    code: "RATE_LIMITED"
+    message: "Rate limit exceeded"
+  500:
+    code: "INTERNAL_ERROR"
+    message: "Internal server error"
+  502:
+    code: "BAD_GATEWAY"
+    message: "Bad gateway"
+  503:
+    code: "SERVICE_UNAVAILABLE"
+    message: "Service temporarily unavailable"
+  504:
+    code: "GATEWAY_TIMEOUT"
+    message: "Gateway timeout"
+
+# Response status codes for success
+sandbox_api_success_codes:
+  - 200  # OK
+  - 201  # Created
+  - 202  # Accepted
+  - 204  # No Content
+
+# Content types
+sandbox_api_content_types:
+  json: "application/json"
+  xml: "application/xml"
+  form: "application/x-www-form-urlencoded"
+  multipart: "multipart/form-data"
+
+# AWS-specific configuration
+sandbox_aws_config:
+  # AWS region
+  region: "us-east-1"
+  
+  # AWS service endpoints
+  services:
+    organizations: "organizations"
+    iam: "iam"
+    dynamodb: "dynamodb"
+    eventbridge: "events"
+    stepfunctions: "stepfunctions"
+    lambda: "lambda"
+    
+  # Resource naming patterns
+  resource_patterns:
+    account_ou: "InnovationSandbox-{status}"
+    scp_name: "innovation-sandbox-{type}"
+    role_name: "InnovationSandboxRole-{purpose}" 

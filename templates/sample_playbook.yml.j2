@@ -1,0 +1,303 @@
+---
+# Sample Playbook for AWS Innovation Sandbox API Interface Role
+# This playbook demonstrates how to use the role for various API operations
+
+- name: AWS Innovation Sandbox API Operations
+  hosts: localhost
+  gather_facts: yes
+  vars:
+    # Configure your API settings here
+    sandbox_api:
+      base_url: "{{ sandbox_api_base_url | default('https://your-sandbox-api.amazonaws.com') }}"
+      version: "{{ sandbox_api_version | default('v1') }}"
+      auth:
+        type: "{{ sandbox_auth_type | default('api_key') }}"
+        api_key: "{{ sandbox_api_key | default('') }}"
+        # For AWS IAM authentication:
+        # type: "aws_iam"
+        # role_arn: "arn:aws:iam::123456789012:role/SandboxAPIRole"
+      timeout: 30
+      retries: 3
+      ssl:
+        verify: true
+      headers:
+        User-Agent: "ansible-sandbox-client/1.0"
+        Content-Type: "application/json"
+        Accept: "application/json"
+
+    # Default values for operations
+    sandbox_accounts:
+      default_lease_duration: 7200  # 2 hours
+      default_budget_limit: 100
+      default_budget_currency: "USD"
+      auto_cleanup: true
+      cleanup_delay: 300
+
+    sandbox_leases:
+      default_duration: 7200
+      max_duration: 28800
+      min_duration: 300
+      allow_extension: true
+      max_extensions: 2
+      extension_increment: 3600
+
+    sandbox_users:
+      default_role: "SandboxUser"
+      default_permissions:
+        - "CanCreateLease"
+        - "CanViewOwnLeases"
+        - "CanExtendLease"
+        - "CanTerminateLease"
+      session_timeout: 3600
+      max_concurrent_sessions: 3
+
+    sandbox_monitoring:
+      cloudwatch:
+        enabled: true
+        log_group: "/aws/innovation-sandbox/api"
+        metrics_namespace: "InnovationSandbox"
+      logging:
+        level: "INFO"
+        include_request_body: false
+        include_response_body: false
+      health_check:
+        enabled: true
+        interval: 300
+        timeout: 10
+        endpoint: "/health"
+
+    sandbox_error_handling:
+      retry_on_errors:
+        - 429
+        - 500
+        - 502
+        - 503
+        - 504
+      rate_limit:
+        enabled: true
+        requests_per_second: 10
+        burst_size: 20
+      circuit_breaker:
+        enabled: true
+        failure_threshold: 5
+        recovery_timeout: 60
+        half_open_max_calls: 3
+
+    sandbox_dev:
+      debug: false
+      verbose: false
+      test_mode: false
+      mock_responses: false
+      dev_endpoints:
+        enabled: false
+        base_url: ""
+
+  tasks:
+    # Health Check
+    - name: Perform API health check
+      include_role:
+        name: aws-sandbox-api
+      vars:
+        sandbox_action: "health_check"
+      tags: [health, always]
+
+    # Account Management Examples
+    - name: List all accounts
+      include_role:
+        name: aws-sandbox-api
+      vars:
+        sandbox_action: "list_accounts"
+      tags: [accounts, list]
+
+    - name: Create a new account
+      include_role:
+        name: aws-sandbox-api
+      vars:
+        sandbox_action: "create_account"
+        sandbox_account_name: "{{ account_name | default('test-account-' + ansible_date_time.epoch) }}"
+        sandbox_account_email: "{{ account_email | default('admin@example.com') }}"
+        sandbox_account_budget: "{{ account_budget | default(sandbox_accounts.default_budget_limit) }}"
+        sandbox_account_duration: "{{ account_duration | default(sandbox_accounts.default_lease_duration) }}"
+        sandbox_account_tags:
+          Environment: "{{ environment | default('dev') }}"
+          Purpose: "{{ purpose | default('automation-testing') }}"
+          Owner: "{{ owner | default('ansible-automation') }}"
+      when: create_account | default(false)
+      tags: [accounts, create]
+
+    - name: Get account details
+      include_role:
+        name: aws-sandbox-api
+      vars:
+        sandbox_action: "get_account"
+        sandbox_account_id: "{{ account_id }}"
+      when: 
+        - get_account | default(false)
+        - account_id is defined
+      tags: [accounts, get]
+
+    # Lease Management Examples
+    - name: List all leases
+      include_role:
+        name: aws-sandbox-api
+      vars:
+        sandbox_action: "list_leases"
+      tags: [leases, list]
+
+    - name: Create a new lease
+      include_role:
+        name: aws-sandbox-api
+      vars:
+        sandbox_action: "create_lease"
+        sandbox_lease_account_id: "{{ lease_account_id }}"
+        sandbox_lease_user_id: "{{ lease_user_id | default('ansible-user-' + ansible_date_time.epoch) }}"
+        sandbox_lease_duration: "{{ lease_duration | default(sandbox_leases.default_duration) }}"
+        sandbox_lease_budget: "{{ lease_budget | default(sandbox_accounts.default_budget_limit) }}"
+        sandbox_lease_purpose: "{{ lease_purpose | default('Ansible automation lease') }}"
+      when: 
+        - create_lease | default(false)
+        - lease_account_id is defined
+      tags: [leases, create]
+
+    - name: Get lease details
+      include_role:
+        name: aws-sandbox-api
+      vars:
+        sandbox_action: "get_lease"
+        sandbox_lease_id: "{{ lease_id }}"
+      when: 
+        - get_lease | default(false)
+        - lease_id is defined
+      tags: [leases, get]
+
+    - name: Extend a lease
+      include_role:
+        name: aws-sandbox-api
+      vars:
+        sandbox_action: "extend_lease"
+        sandbox_lease_id: "{{ lease_id }}"
+        sandbox_lease_extension: "{{ lease_extension | default(sandbox_leases.extension_increment) }}"
+      when: 
+        - extend_lease | default(false)
+        - lease_id is defined
+      tags: [leases, extend]
+
+    - name: Terminate a lease
+      include_role:
+        name: aws-sandbox-api
+      vars:
+        sandbox_action: "terminate_lease"
+        sandbox_lease_id: "{{ lease_id }}"
+      when: 
+        - terminate_lease | default(false)
+        - lease_id is defined
+      tags: [leases, terminate]
+
+    # User Management Examples
+    - name: List all users
+      include_role:
+        name: aws-sandbox-api
+      vars:
+        sandbox_action: "list_users"
+      tags: [users, list]
+
+    - name: Create a new user
+      include_role:
+        name: aws-sandbox-api
+      vars:
+        sandbox_action: "create_user"
+        sandbox_user_username: "{{ user_username }}"
+        sandbox_user_email: "{{ user_email }}"
+        sandbox_user_role: "{{ user_role | default(sandbox_users.default_role) }}"
+        sandbox_user_permissions: "{{ user_permissions | default(sandbox_users.default_permissions) }}"
+      when: 
+        - create_user | default(false)
+        - user_username is defined
+        - user_email is defined
+      tags: [users, create]
+
+    - name: Get user details
+      include_role:
+        name: aws-sandbox-api
+      vars:
+        sandbox_action: "get_user"
+        sandbox_user_id: "{{ user_id }}"
+      when: 
+        - get_user | default(false)
+        - user_id is defined
+      tags: [users, get]
+
+    # Configuration and Monitoring Examples
+    - name: Get global configuration
+      include_role:
+        name: aws-sandbox-api
+      vars:
+        sandbox_action: "get_config"
+      tags: [config, get]
+
+    - name: Get system metrics
+      include_role:
+        name: aws-sandbox-api
+      vars:
+        sandbox_action: "get_metrics"
+      tags: [monitoring, metrics]
+
+    - name: Get system status
+      include_role:
+        name: aws-sandbox-api
+      vars:
+        sandbox_action: "get_status"
+      tags: [monitoring, status]
+
+    # Using the custom module directly
+    - name: Direct API call using custom module
+      sandbox_api:
+        action: "{{ direct_action | default('health_check') }}"
+        api_url: "{{ sandbox_api.base_url }}"
+        api_version: "{{ sandbox_api.version }}"
+        auth_type: "{{ sandbox_api.auth.type }}"
+        auth_config: "{{ sandbox_api.auth }}"
+        timeout: "{{ sandbox_api.timeout }}"
+        validate_certs: "{{ sandbox_api.ssl.verify }}"
+        account_id: "{{ direct_account_id | default(omit) }}"
+        lease_id: "{{ direct_lease_id | default(omit) }}"
+        user_id: "{{ direct_user_id | default(omit) }}"
+        resource_data: "{{ direct_resource_data | default({}) }}"
+        query_params: "{{ direct_query_params | default({}) }}"
+      register: direct_api_result
+      when: use_direct_module | default(false)
+      tags: [direct, module]
+
+    - name: Display direct API result
+      debug:
+        var: direct_api_result
+      when: 
+        - use_direct_module | default(false)
+        - direct_api_result is defined
+      tags: [direct, module]
+
+  handlers:
+    # Notification handlers
+    - name: Send success notification
+      debug:
+        msg: "Sandbox API operation completed successfully"
+      listen: "operation success"
+
+    - name: Send failure notification
+      debug:
+        msg: "Sandbox API operation failed"
+      listen: "operation failure"
+
+    # Cleanup handlers
+    - name: Cleanup temporary resources
+      debug:
+        msg: "Cleaning up temporary resources"
+      listen: "cleanup resources"
+
+# Example usage:
+# ansible-playbook sample_playbook.yml -e "sandbox_api_key=your-api-key"
+# ansible-playbook sample_playbook.yml -e "create_account=true account_name=my-test-account"
+# ansible-playbook sample_playbook.yml -e "create_lease=true lease_account_id=account-123"
+# ansible-playbook sample_playbook.yml -e "extend_lease=true lease_id=lease-456"
+# ansible-playbook sample_playbook.yml --tags "health,accounts"
+# ansible-playbook sample_playbook.yml --tags "leases" -e "list_leases=true" 

@@ -1,0 +1,321 @@
+---
+# AWS Innovation Sandbox API Interface Role Main Tasks
+
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - sandbox_api.base_url is defined
+      - sandbox_api.base_url | length > 0
+      - sandbox_api.auth.type is defined
+      - sandbox_api.auth.type in ['aws_iam', 'api_key', 'oauth2', 'basic']
+    fail_msg: "Required API configuration variables are missing or invalid"
+    success_msg: "API configuration validation passed"
+  tags: [validation, always]
+
+- name: Set API facts
+  ansible.builtin.set_fact:
+    _sandbox_api_base_url: "{{ sandbox_api.base_url.rstrip('/') }}"
+    _sandbox_api_version: "{{ sandbox_api.version | default('v1') }}"
+    _sandbox_api_full_url: "{{ sandbox_api.base_url.rstrip('/') }}/{{ sandbox_api.version | default('v1') }}"
+    _sandbox_auth_headers: {}
+  tags: [setup, always]
+
+- name: Setup AWS IAM authentication headers
+  ansible.builtin.set_fact:
+    _sandbox_auth_headers: "{{ _sandbox_auth_headers | combine({'Authorization': 'AWS4-HMAC-SHA256 ' + aws_signature}) }}"
+  when: sandbox_api.auth.type == 'aws_iam'
+  vars:
+    aws_signature: "{{ ansible_date_time.epoch | hash('sha256') }}"  # Placeholder for actual AWS signature
+  tags: [auth, setup]
+
+- name: Setup API key authentication headers
+  ansible.builtin.set_fact:
+    _sandbox_auth_headers: "{{ _sandbox_auth_headers | combine({'X-API-Key': sandbox_api.auth.api_key}) }}"
+  when: 
+    - sandbox_api.auth.type == 'api_key'
+    - sandbox_api.auth.api_key is defined
+    - sandbox_api.auth.api_key | length > 0
+  tags: [auth, setup]
+
+- name: Setup basic authentication headers
+  ansible.builtin.set_fact:
+    _sandbox_auth_headers: "{{ _sandbox_auth_headers | combine({'Authorization': 'Basic ' + basic_auth_string}) }}"
+  when: 
+    - sandbox_api.auth.type == 'basic'
+    - sandbox_api.auth.basic.username is defined
+    - sandbox_api.auth.basic.password is defined
+  vars:
+    basic_auth_string: "{{ (sandbox_api.auth.basic.username + ':' + sandbox_api.auth.basic.password) | b64encode }}"
+  tags: [auth, setup]
+
+- name: Setup common request headers
+  ansible.builtin.set_fact:
+    _sandbox_request_headers: "{{ sandbox_api.headers | combine(_sandbox_auth_headers) }}"
+  tags: [setup, always]
+
+- name: Test API connectivity
+  ansible.builtin.uri:
+    url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.monitoring.health }}"
+    method: "{{ sandbox_api_methods.monitoring_health }}"
+    headers: "{{ _sandbox_request_headers }}"
+    timeout: "{{ sandbox_api.timeout }}"
+    validate_certs: "{{ sandbox_api.ssl.verify }}"
+    status_code: [200, 404]  # 404 is acceptable if health endpoint doesn't exist
+  register: _health_check_result
+  failed_when: false
+  tags: [health, connectivity]
+
+- name: Display connectivity status
+  ansible.builtin.debug:
+    msg: >
+      API connectivity test {{ 'successful' if _health_check_result.status == 200 else 'failed' }}.
+      Status: {{ _health_check_result.status | default('unknown') }}
+  tags: [health, connectivity]
+
+# Account Management Tasks
+
+- name: List sandbox accounts
+  ansible.builtin.uri:
+    url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.accounts.list }}"
+    method: "{{ sandbox_api_methods.accounts_list }}"
+    headers: "{{ _sandbox_request_headers }}"
+    timeout: "{{ sandbox_api.timeout }}"
+    validate_certs: "{{ sandbox_api.ssl.verify }}"
+    status_code: "{{ sandbox_api_success_codes }}"
+  register: sandbox_accounts_list
+  when: sandbox_action == 'list_accounts'
+  tags: [accounts, list]
+
+- name: Get specific sandbox account
+  ansible.builtin.uri:
+    url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.accounts.get | replace('{account_id}', sandbox_account_id) }}"
+    method: "{{ sandbox_api_methods.accounts_get }}"
+    headers: "{{ _sandbox_request_headers }}"
+    timeout: "{{ sandbox_api.timeout }}"
+    validate_certs: "{{ sandbox_api.ssl.verify }}"
+    status_code: "{{ sandbox_api_success_codes }}"
+  register: sandbox_account_details
+  when: 
+    - sandbox_action == 'get_account'
+    - sandbox_account_id is defined
+  tags: [accounts, get]
+
+- name: Create sandbox account
+  ansible.builtin.uri:
+    url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.accounts.create }}"
+    method: "{{ sandbox_api_methods.accounts_create }}"
+    headers: "{{ _sandbox_request_headers }}"
+    body_format: json
+    body:
+      name: "{{ sandbox_account_name | default('sandbox-account-' + ansible_date_time.epoch) }}"
+      email: "{{ sandbox_account_email | default('admin@example.com') }}"
+      budget_limit: "{{ sandbox_account_budget | default(sandbox_accounts.default_budget_limit) }}"
+      duration: "{{ sandbox_account_duration | default(sandbox_accounts.default_lease_duration) }}"
+      tags: "{{ sandbox_account_tags | default({}) }}"
+    timeout: "{{ sandbox_api.timeout }}"
+    validate_certs: "{{ sandbox_api.ssl.verify }}"
+    status_code: "{{ sandbox_api_success_codes }}"
+  register: sandbox_account_created
+  when: sandbox_action == 'create_account'
+  tags: [accounts, create]
+
+# Lease Management Tasks
+
+- name: List sandbox leases
+  ansible.builtin.uri:
+    url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.leases.list }}"
+    method: "{{ sandbox_api_methods.leases_list }}"
+    headers: "{{ _sandbox_request_headers }}"
+    timeout: "{{ sandbox_api.timeout }}"
+    validate_certs: "{{ sandbox_api.ssl.verify }}"
+    status_code: "{{ sandbox_api_success_codes }}"
+  register: sandbox_leases_list
+  when: sandbox_action == 'list_leases'
+  tags: [leases, list]
+
+- name: Create sandbox lease
+  ansible.builtin.uri:
+    url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.leases.create }}"
+    method: "{{ sandbox_api_methods.leases_create }}"
+    headers: "{{ _sandbox_request_headers }}"
+    body_format: json
+    body:
+      account_id: "{{ sandbox_lease_account_id }}"
+      user_id: "{{ sandbox_lease_user_id | default('ansible-user') }}"
+      duration: "{{ sandbox_lease_duration | default(sandbox_leases.default_duration) }}"
+      budget_limit: "{{ sandbox_lease_budget | default(sandbox_accounts.default_budget_limit) }}"
+      purpose: "{{ sandbox_lease_purpose | default('Ansible automation lease') }}"
+    timeout: "{{ sandbox_api.timeout }}"
+    validate_certs: "{{ sandbox_api.ssl.verify }}"
+    status_code: "{{ sandbox_api_success_codes }}"
+  register: sandbox_lease_created
+  when: 
+    - sandbox_action == 'create_lease'
+    - sandbox_lease_account_id is defined
+  tags: [leases, create]
+
+- name: Get lease details
+  ansible.builtin.uri:
+    url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.leases.get | replace('{lease_id}', sandbox_lease_id) }}"
+    method: "{{ sandbox_api_methods.leases_get }}"
+    headers: "{{ _sandbox_request_headers }}"
+    timeout: "{{ sandbox_api.timeout }}"
+    validate_certs: "{{ sandbox_api.ssl.verify }}"
+    status_code: "{{ sandbox_api_success_codes }}"
+  register: sandbox_lease_details
+  when: 
+    - sandbox_action == 'get_lease'
+    - sandbox_lease_id is defined
+  tags: [leases, get]
+
+- name: Extend sandbox lease
+  ansible.builtin.uri:
+    url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.leases.extend | replace('{lease_id}', sandbox_lease_id) }}"
+    method: "{{ sandbox_api_methods.leases_extend }}"
+    headers: "{{ _sandbox_request_headers }}"
+    body_format: json
+    body:
+      duration: "{{ sandbox_lease_extension | default(sandbox_leases.extension_increment) }}"
+    timeout: "{{ sandbox_api.timeout }}"
+    validate_certs: "{{ sandbox_api.ssl.verify }}"
+    status_code: "{{ sandbox_api_success_codes }}"
+  register: sandbox_lease_extended
+  when: 
+    - sandbox_action == 'extend_lease'
+    - sandbox_lease_id is defined
+    - sandbox_leases.allow_extension | default(true)
+  tags: [leases, extend]
+
+- name: Terminate sandbox lease
+  ansible.builtin.uri:
+    url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.leases.terminate | replace('{lease_id}', sandbox_lease_id) }}"
+    method: "{{ sandbox_api_methods.leases_terminate }}"
+    headers: "{{ _sandbox_request_headers }}"
+    timeout: "{{ sandbox_api.timeout }}"
+    validate_certs: "{{ sandbox_api.ssl.verify }}"
+    status_code: "{{ sandbox_api_success_codes }}"
+  register: sandbox_lease_terminated
+  when: 
+    - sandbox_action == 'terminate_lease'
+    - sandbox_lease_id is defined
+  tags: [leases, terminate]
+
+# User Management Tasks
+
+- name: List sandbox users
+  ansible.builtin.uri:
+    url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.users.list }}"
+    method: "{{ sandbox_api_methods.users_list }}"
+    headers: "{{ _sandbox_request_headers }}"
+    timeout: "{{ sandbox_api.timeout }}"
+    validate_certs: "{{ sandbox_api.ssl.verify }}"
+    status_code: "{{ sandbox_api_success_codes }}"
+  register: sandbox_users_list
+  when: sandbox_action == 'list_users'
+  tags: [users, list]
+
+- name: Create sandbox user
+  ansible.builtin.uri:
+    url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.users.create }}"
+    method: "{{ sandbox_api_methods.users_create }}"
+    headers: "{{ _sandbox_request_headers }}"
+    body_format: json
+    body:
+      username: "{{ sandbox_user_username }}"
+      email: "{{ sandbox_user_email }}"
+      role: "{{ sandbox_user_role | default(sandbox_users.default_role) }}"
+      permissions: "{{ sandbox_user_permissions | default(sandbox_users.default_permissions) }}"
+    timeout: "{{ sandbox_api.timeout }}"
+    validate_certs: "{{ sandbox_api.ssl.verify }}"
+    status_code: "{{ sandbox_api_success_codes }}"
+  register: sandbox_user_created
+  when: 
+    - sandbox_action == 'create_user'
+    - sandbox_user_username is defined
+    - sandbox_user_email is defined
+  tags: [users, create]
+
+# Configuration Tasks
+
+- name: Get global configuration
+  ansible.builtin.uri:
+    url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.config.global }}"
+    method: "{{ sandbox_api_methods.config_global }}"
+    headers: "{{ _sandbox_request_headers }}"
+    timeout: "{{ sandbox_api.timeout }}"
+    validate_certs: "{{ sandbox_api.ssl.verify }}"
+    status_code: "{{ sandbox_api_success_codes }}"
+  register: sandbox_global_config
+  when: sandbox_action == 'get_config'
+  tags: [config, get]
+
+# Monitoring Tasks
+
+- name: Get sandbox metrics
+  ansible.builtin.uri:
+    url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.monitoring.metrics }}"
+    method: "{{ sandbox_api_methods.monitoring_metrics }}"
+    headers: "{{ _sandbox_request_headers }}"
+    timeout: "{{ sandbox_api.timeout }}"
+    validate_certs: "{{ sandbox_api.ssl.verify }}"
+    status_code: "{{ sandbox_api_success_codes }}"
+  register: sandbox_metrics
+  when: sandbox_action == 'get_metrics'
+  tags: [monitoring, metrics]
+
+- name: Get sandbox status
+  ansible.builtin.uri:
+    url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.monitoring.status }}"
+    method: "{{ sandbox_api_methods.monitoring_status }}"
+    headers: "{{ _sandbox_request_headers }}"
+    timeout: "{{ sandbox_api.timeout }}"
+    validate_certs: "{{ sandbox_api.ssl.verify }}"
+    status_code: "{{ sandbox_api_success_codes }}"
+  register: sandbox_status
+  when: sandbox_action == 'get_status'
+  tags: [monitoring, status]
+
+# Error handling and notifications
+
+- name: Handle API errors
+  ansible.builtin.fail:
+    msg: >
+      API request failed: {{ item.msg | default('Unknown error') }}
+      Status: {{ item.status | default('unknown') }}
+      Response: {{ item.content | default('No response content') }}
+  when: 
+    - item is defined
+    - item.status is defined
+    - item.status not in sandbox_api_success_codes
+  loop:
+    - "{{ sandbox_accounts_list | default({}) }}"
+    - "{{ sandbox_account_details | default({}) }}"
+    - "{{ sandbox_account_created | default({}) }}"
+    - "{{ sandbox_leases_list | default({}) }}"
+    - "{{ sandbox_lease_created | default({}) }}"
+    - "{{ sandbox_lease_details | default({}) }}"
+    - "{{ sandbox_lease_extended | default({}) }}"
+    - "{{ sandbox_lease_terminated | default({}) }}"
+    - "{{ sandbox_users_list | default({}) }}"
+    - "{{ sandbox_user_created | default({}) }}"
+    - "{{ sandbox_global_config | default({}) }}"
+    - "{{ sandbox_metrics | default({}) }}"
+    - "{{ sandbox_status | default({}) }}"
+  loop_control:
+    label: "{{ item.status | default('N/A') }}"
+  tags: [error_handling, always]
+
+- name: Summary of completed actions
+  ansible.builtin.debug:
+    msg:
+      - "=== AWS Innovation Sandbox API Interface Summary ==="
+      - "Action performed: {{ sandbox_action | default('health_check') }}"
+      - "API endpoint: {{ _sandbox_api_full_url }}"
+      - "Authentication: {{ sandbox_api.auth.type }}"
+      - "{{ 'Accounts found: ' + (sandbox_accounts_list.json | length | string) if sandbox_accounts_list is defined and sandbox_accounts_list.json is defined else '' }}"
+      - "{{ 'Leases found: ' + (sandbox_leases_list.json | length | string) if sandbox_leases_list is defined and sandbox_leases_list.json is defined else '' }}"
+      - "{{ 'Users found: ' + (sandbox_users_list.json | length | string) if sandbox_users_list is defined and sandbox_users_list.json is defined else '' }}"
+      - "{{ 'Account created: ' + sandbox_account_created.json.account_id if sandbox_account_created is defined and sandbox_account_created.json is defined else '' }}"
+      - "{{ 'Lease created: ' + sandbox_lease_created.json.lease_id if sandbox_lease_created is defined and sandbox_lease_created.json is defined else '' }}"
+      - "{{ 'User created: ' + sandbox_user_created.json.user_id if sandbox_user_created is defined and sandbox_user_created.json is defined else '' }}"
+  tags: [summary, always] 

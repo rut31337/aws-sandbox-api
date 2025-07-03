@@ -1,0 +1,122 @@
+{
+  "apiConfig": {
+    "baseUrl": "{{ sandbox_api.base_url }}",
+    "version": "{{ sandbox_api.version | default('v1') }}",
+    "authentication": {
+      "type": "{{ sandbox_api.auth.type }}",
+      "config": {
+{% if sandbox_api.auth.type == 'api_key' %}
+        "apiKey": "{{ sandbox_api.auth.api_key | default('') }}"
+{% elif sandbox_api.auth.type == 'basic' %}
+        "username": "{{ sandbox_api.auth.basic.username | default('') }}",
+        "password": "{{ sandbox_api.auth.basic.password | default('') }}"
+{% elif sandbox_api.auth.type == 'oauth2' %}
+        "clientId": "{{ sandbox_api.auth.oauth2.client_id | default('') }}",
+        "clientSecret": "{{ sandbox_api.auth.oauth2.client_secret | default('') }}",
+        "tokenUrl": "{{ sandbox_api.auth.oauth2.token_url | default('') }}",
+        "scope": "{{ sandbox_api.auth.oauth2.scope | default('') }}"
+{% elif sandbox_api.auth.type == 'aws_iam' %}
+        "roleArn": "{{ sandbox_api.auth.role_arn | default('') }}"
+{% endif %}
+      }
+    },
+    "requestSettings": {
+      "timeout": {{ sandbox_api.timeout | default(30) }},
+      "retries": {{ sandbox_api.retries | default(3) }},
+      "retryDelay": {{ sandbox_api.retry_delay | default(5) }}
+    },
+    "sslSettings": {
+      "verify": {{ sandbox_api.ssl.verify | default(true) | lower }},
+      "certPath": "{{ sandbox_api.ssl.cert_path | default('') }}",
+      "keyPath": "{{ sandbox_api.ssl.key_path | default('') }}",
+      "caBundlePath": "{{ sandbox_api.ssl.ca_bundle_path | default('') }}"
+    },
+    "headers": {
+{% for key, value in sandbox_api.headers.items() %}
+      "{{ key }}": "{{ value }}"{% if not loop.last %},{% endif %}
+{% endfor %}
+    }
+  },
+  "accountDefaults": {
+    "leaseDuration": {{ sandbox_accounts.default_lease_duration | default(7200) }},
+    "budgetLimit": {{ sandbox_accounts.default_budget_limit | default(100) }},
+    "budgetCurrency": "{{ sandbox_accounts.default_budget_currency | default('USD') }}",
+    "autoCleanup": {{ sandbox_accounts.auto_cleanup | default(true) | lower }},
+    "cleanupDelay": {{ sandbox_accounts.cleanup_delay | default(300) }},
+    "poolSizeMin": {{ sandbox_accounts.pool_size_min | default(5) }},
+    "poolSizeMax": {{ sandbox_accounts.pool_size_max | default(20) }},
+    "defaultScps": [
+{% for scp in sandbox_accounts.default_scps | default([]) %}
+      "{{ scp }}"{% if not loop.last %},{% endif %}
+{% endfor %}
+    ]
+  },
+  "leaseDefaults": {
+    "defaultDuration": {{ sandbox_leases.default_duration | default(7200) }},
+    "maxDuration": {{ sandbox_leases.max_duration | default(28800) }},
+    "minDuration": {{ sandbox_leases.min_duration | default(300) }},
+    "allowExtension": {{ sandbox_leases.allow_extension | default(true) | lower }},
+    "maxExtensions": {{ sandbox_leases.max_extensions | default(2) }},
+    "extensionIncrement": {{ sandbox_leases.extension_increment | default(3600) }},
+    "notifyOnExpiry": {{ sandbox_leases.notify_on_expiry | default(true) | lower }},
+    "notifyBeforeExpiry": {{ sandbox_leases.notify_before_expiry | default(1800) }},
+    "autoRenew": {{ sandbox_leases.auto_renew | default(false) | lower }},
+    "autoRenewThreshold": {{ sandbox_leases.auto_renew_threshold | default(600) }}
+  },
+  "userDefaults": {
+    "defaultRole": "{{ sandbox_users.default_role | default('SandboxUser') }}",
+    "defaultPermissions": [
+{% for permission in sandbox_users.default_permissions | default([]) %}
+      "{{ permission }}"{% if not loop.last %},{% endif %}
+{% endfor %}
+    ],
+    "sessionTimeout": {{ sandbox_users.session_timeout | default(3600) }},
+    "maxConcurrentSessions": {{ sandbox_users.max_concurrent_sessions | default(3) }}
+  },
+  "monitoring": {
+    "cloudwatch": {
+      "enabled": {{ sandbox_monitoring.cloudwatch.enabled | default(true) | lower }},
+      "logGroup": "{{ sandbox_monitoring.cloudwatch.log_group | default('/aws/innovation-sandbox/api') }}",
+      "metricsNamespace": "{{ sandbox_monitoring.cloudwatch.metrics_namespace | default('InnovationSandbox') }}"
+    },
+    "logging": {
+      "level": "{{ sandbox_monitoring.logging.level | default('INFO') }}",
+      "includeRequestBody": {{ sandbox_monitoring.logging.include_request_body | default(false) | lower }},
+      "includeResponseBody": {{ sandbox_monitoring.logging.include_response_body | default(false) | lower }}
+    },
+    "healthCheck": {
+      "enabled": {{ sandbox_monitoring.health_check.enabled | default(true) | lower }},
+      "interval": {{ sandbox_monitoring.health_check.interval | default(300) }},
+      "timeout": {{ sandbox_monitoring.health_check.timeout | default(10) }},
+      "endpoint": "{{ sandbox_monitoring.health_check.endpoint | default('/health') }}"
+    }
+  },
+  "errorHandling": {
+    "retryOnErrors": [
+{% for error_code in sandbox_error_handling.retry_on_errors | default([]) %}
+      {{ error_code }}{% if not loop.last %},{% endif %}
+{% endfor %}
+    ],
+    "rateLimit": {
+      "enabled": {{ sandbox_error_handling.rate_limit.enabled | default(true) | lower }},
+      "requestsPerSecond": {{ sandbox_error_handling.rate_limit.requests_per_second | default(10) }},
+      "burstSize": {{ sandbox_error_handling.rate_limit.burst_size | default(20) }}
+    },
+    "circuitBreaker": {
+      "enabled": {{ sandbox_error_handling.circuit_breaker.enabled | default(true) | lower }},
+      "failureThreshold": {{ sandbox_error_handling.circuit_breaker.failure_threshold | default(5) }},
+      "recoveryTimeout": {{ sandbox_error_handling.circuit_breaker.recovery_timeout | default(60) }},
+      "halfOpenMaxCalls": {{ sandbox_error_handling.circuit_breaker.half_open_max_calls | default(3) }}
+    }
+  },
+  "development": {
+    "debug": {{ sandbox_dev.debug | default(false) | lower }},
+    "verbose": {{ sandbox_dev.verbose | default(false) | lower }},
+    "testMode": {{ sandbox_dev.test_mode | default(false) | lower }},
+    "mockResponses": {{ sandbox_dev.mock_responses | default(false) | lower }},
+    "devEndpoints": {
+      "enabled": {{ sandbox_dev.dev_endpoints.enabled | default(false) | lower }},
+      "baseUrl": "{{ sandbox_dev.dev_endpoints.base_url | default('') }}"
+    }
+  }
+} 

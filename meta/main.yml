@@ -1,0 +1,34 @@
+---
+galaxy_info:
+  author: AWS Innovation Sandbox API Interface Role
+  description: Ansible role for interfacing with the AWS Innovation Sandbox API
+  company: AWS
+  license: Apache-2.0
+  min_ansible_version: 2.12
+  platforms:
+  - name: EL
+    versions:
+    - all
+  - name: Ubuntu
+    versions:
+    - all
+  - name: Amazon
+    versions:
+    - all
+  galaxy_tags:
+    - aws
+    - api
+    - sandbox
+    - innovation
+    - account
+    - lease
+    - management
+    - client
+    - rest
+    - http
+
+dependencies:
+  - name: ansible.posix
+    version: ">=1.0.0"
+  - name: community.general
+    version: ">=5.0.0" 

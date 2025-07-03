@@ -1,0 +1,210 @@
+---
+# AWS Innovation Sandbox API Interface Role Handlers
+
+- name: Process account creation response
+  ansible.builtin.debug:
+    msg:
+      - "Account successfully created:"
+      - "  Account ID: {{ sandbox_account_created.json.account_id | default('unknown') }}"
+      - "  Name: {{ sandbox_account_created.json.name | default('unknown') }}"
+      - "  Status: {{ sandbox_account_created.json.status | default('unknown') }}"
+      - "  Created: {{ sandbox_account_created.json.created_at | default('unknown') }}"
+  when: 
+    - sandbox_account_created is defined
+    - sandbox_account_created.json is defined
+  listen: "account created"
+
+- name: Process lease creation response
+  ansible.builtin.debug:
+    msg:
+      - "Lease successfully created:"
+      - "  Lease ID: {{ sandbox_lease_created.json.lease_id | default('unknown') }}"
+      - "  Account ID: {{ sandbox_lease_created.json.account_id | default('unknown') }}"
+      - "  User ID: {{ sandbox_lease_created.json.user_id | default('unknown') }}"
+      - "  Status: {{ sandbox_lease_created.json.status | default('unknown') }}"
+      - "  Created: {{ sandbox_lease_created.json.created_at | default('unknown') }}"
+      - "  Expires: {{ sandbox_lease_created.json.expires_at | default('unknown') }}"
+  when: 
+    - sandbox_lease_created is defined
+    - sandbox_lease_created.json is defined
+  listen: "lease created"
+
+- name: Process user creation response
+  ansible.builtin.debug:
+    msg:
+      - "User successfully created:"
+      - "  User ID: {{ sandbox_user_created.json.user_id | default('unknown') }}"
+      - "  Username: {{ sandbox_user_created.json.username | default('unknown') }}"
+      - "  Email: {{ sandbox_user_created.json.email | default('unknown') }}"
+      - "  Role: {{ sandbox_user_created.json.role | default('unknown') }}"
+      - "  Status: {{ sandbox_user_created.json.status | default('unknown') }}"
+      - "  Created: {{ sandbox_user_created.json.created_at | default('unknown') }}"
+  when: 
+    - sandbox_user_created is defined
+    - sandbox_user_created.json is defined
+  listen: "user created"
+
+- name: Process lease extension response
+  ansible.builtin.debug:
+    msg:
+      - "Lease successfully extended:"
+      - "  Lease ID: {{ sandbox_lease_extended.json.lease_id | default('unknown') }}"
+      - "  New expiry: {{ sandbox_lease_extended.json.expires_at | default('unknown') }}"
+      - "  Extended by: {{ sandbox_lease_extension | default('unknown') }} seconds"
+  when: 
+    - sandbox_lease_extended is defined
+    - sandbox_lease_extended.json is defined
+  listen: "lease extended"
+
+- name: Process lease termination response
+  ansible.builtin.debug:
+    msg:
+      - "Lease successfully terminated:"
+      - "  Lease ID: {{ sandbox_lease_terminated.json.lease_id | default('unknown') }}"
+      - "  Status: {{ sandbox_lease_terminated.json.status | default('unknown') }}"
+      - "  Terminated at: {{ ansible_date_time.iso8601 }}"
+  when: 
+    - sandbox_lease_terminated is defined
+    - sandbox_lease_terminated.json is defined
+  listen: "lease terminated"
+
+- name: Send notification email
+  community.general.mail:
+    to: "{{ sandbox_notification_email | default('admin@example.com') }}"
+    subject: "{{ sandbox_notification_subject | default('Sandbox API Notification') }}"
+    body: "{{ sandbox_notification_body | default('A sandbox operation has been completed.') }}"
+    from: "{{ sandbox_notification_from | default('noreply@example.com') }}"
+    smtp: "{{ sandbox_notification_smtp_host | default('localhost') }}"
+    port: "{{ sandbox_notification_smtp_port | default(587) }}"
+    username: "{{ sandbox_notification_smtp_user | default('') }}"
+    password: "{{ sandbox_notification_smtp_pass | default('') }}"
+    secure: "{{ sandbox_notification_smtp_secure | default('starttls') }}"
+  when: 
+    - sandbox_monitoring.notifications.email.enabled | default(false)
+    - sandbox_notification_email is defined
+  listen: "send notification"
+
+- name: Log API operation
+  ansible.builtin.lineinfile:
+    path: "{{ sandbox_log_file | default('/tmp/sandbox-api.log') }}"
+    line: >
+      {{ ansible_date_time.iso8601 }} - 
+      Action: {{ sandbox_action | default('unknown') }} - 
+      User: {{ ansible_user | default('unknown') }} - 
+      Status: {{ sandbox_operation_status | default('unknown') }} - 
+      Details: {{ sandbox_operation_details | default('No details') }}
+    create: yes
+    mode: '0644'
+  when: sandbox_monitoring.logging.enabled | default(true)
+  listen: "log operation"
+
+- name: Update metrics
+  ansible.builtin.uri:
+    url: "{{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.monitoring.metrics }}"
+    method: "POST"
+    headers: "{{ _sandbox_request_headers }}"
+    body_format: json
+    body:
+      action: "{{ sandbox_action | default('unknown') }}"
+      timestamp: "{{ ansible_date_time.iso8601 }}"
+      user: "{{ ansible_user | default('unknown') }}"
+      status: "{{ sandbox_operation_status | default('unknown') }}"
+      duration: "{{ sandbox_operation_duration | default(0) }}"
+    timeout: "{{ sandbox_api.timeout }}"
+    validate_certs: "{{ sandbox_api.ssl.verify }}"
+    status_code: [200, 201, 202, 204, 404]  # 404 acceptable if metrics endpoint doesn't exist
+  when: 
+    - sandbox_monitoring.metrics.enabled | default(true)
+    - _sandbox_api_full_url is defined
+    - _sandbox_request_headers is defined
+  failed_when: false
+  listen: "update metrics"
+
+- name: Cleanup on failure
+  ansible.builtin.debug:
+    msg:
+      - "Operation failed, initiating cleanup procedures:"
+      - "  Failed action: {{ sandbox_action | default('unknown') }}"
+      - "  Error: {{ sandbox_error_message | default('Unknown error') }}"
+      - "  Timestamp: {{ ansible_date_time.iso8601 }}"
+  listen: "cleanup on failure"
+
+- name: Retry failed operation
+  ansible.builtin.debug:
+    msg:
+      - "Retrying failed operation:"
+      - "  Action: {{ sandbox_action | default('unknown') }}"
+      - "  Attempt: {{ sandbox_retry_attempt | default(1) }}"
+      - "  Max retries: {{ sandbox_api.retries | default(3) }}"
+  when: 
+    - sandbox_retry_attempt is defined
+    - sandbox_retry_attempt <= (sandbox_api.retries | default(3))
+  listen: "retry operation"
+
+- name: Cache API response
+  ansible.builtin.copy:
+    content: "{{ sandbox_api_response | to_nice_json }}"
+    dest: "{{ sandbox_cache_dir | default('/tmp/sandbox-cache') }}/{{ sandbox_action }}-{{ ansible_date_time.epoch }}.json"
+    mode: '0644'
+  when: 
+    - sandbox_caching.enabled | default(false)
+    - sandbox_api_response is defined
+  listen: "cache response"
+
+- name: Validate response schema
+  ansible.builtin.assert:
+    that:
+      - sandbox_api_response is defined
+      - sandbox_api_response is mapping
+    fail_msg: "Invalid API response format"
+    success_msg: "API response validation passed"
+  when: sandbox_validation.enabled | default(true)
+  listen: "validate response"
+
+- name: Rate limit warning
+  ansible.builtin.debug:
+    msg:
+      - "Rate limit warning:"
+      - "  Current requests: {{ sandbox_rate_limit_current | default('unknown') }}"
+      - "  Limit: {{ sandbox_api.rate_limit.requests_per_second | default('unknown') }}"
+      - "  Reset time: {{ sandbox_rate_limit_reset | default('unknown') }}"
+  when: sandbox_rate_limit_warning | default(false)
+  listen: "rate limit warning"
+
+- name: Circuit breaker triggered
+  ansible.builtin.debug:
+    msg:
+      - "Circuit breaker triggered:"
+      - "  Failures: {{ sandbox_circuit_breaker_failures | default('unknown') }}"
+      - "  Threshold: {{ sandbox_error_handling.circuit_breaker.failure_threshold | default(5) }}"
+      - "  Recovery timeout: {{ sandbox_error_handling.circuit_breaker.recovery_timeout | default(60) }} seconds"
+  listen: "circuit breaker"
+
+- name: Health check failure
+  ansible.builtin.debug:
+    msg:
+      - "Health check failed:"
+      - "  Endpoint: {{ _sandbox_api_full_url }}{{ sandbox_api_endpoints.monitoring.health }}"
+      - "  Status: {{ _health_check_result.status | default('unknown') }}"
+      - "  Response: {{ _health_check_result.content | default('No response') }}"
+  when: 
+    - _health_check_result is defined
+    - _health_check_result.status != 200
+  listen: "health check failed"
+
+- name: API authentication failure
+  ansible.builtin.debug:
+    msg:
+      - "API authentication failed:"
+      - "  Auth type: {{ sandbox_api.auth.type }}"
+      - "  Status: {{ sandbox_auth_failure_status | default('unknown') }}"
+      - "  Message: {{ sandbox_auth_failure_message | default('Authentication failed') }}"
+  listen: "auth failure"
+
+- name: Generate operation report
+  ansible.builtin.template:
+    src: "operation_report.j2"
+    dest: "{{ sandbox_report_dir | default('/tmp/sandbox-reports') }}/operation-{{ ansible_date_time.epoch }}.html"
+    mode: '0644'
+  when: sandbox_reporting.enabled | default(false)
+  listen: "generate report" 
