@@ -14,6 +14,16 @@ This Ansible role provides a comprehensive interface for interacting with the AW
 - **Custom Module**: Includes a custom Ansible module for direct API interactions
 - **Comprehensive Logging**: Detailed logging and notification capabilities
 
+## API Reference
+
+This role is designed to interface with the **AWS Innovation Sandbox API**. The API specification and upstream solution can be found at:
+
+- **API Specification**: [innovation-sandbox-api.yaml](https://github.com/aws-solutions/innovation-sandbox-on-aws/blob/main/docs/openapi/innovation-sandbox-api.yaml)
+- **Upstream Repository**: [aws-solutions/innovation-sandbox-on-aws](https://github.com/aws-solutions/innovation-sandbox-on-aws)
+- **AWS Solutions Page**: [Innovation Sandbox on AWS](https://aws.amazon.com/solutions/implementations/innovation-sandbox-on-aws/)
+
+The Innovation Sandbox on AWS solution enables cloud administrators to automate the management of temporary sandbox environments by implementing service control policies, spend controls, and account recycling mechanisms.
+
 ## Requirements
 
 - Ansible >= 2.12
